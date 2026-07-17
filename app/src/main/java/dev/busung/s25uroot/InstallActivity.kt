@@ -30,8 +30,8 @@ import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -64,7 +64,10 @@ class InstallActivity : ComponentActivity() {
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
-            RootMyGalaxyTheme(accentColor = AppPreferences.accentColor(this)) {
+            RootMyGalaxyTheme(
+                accentColor = AppPreferences.accentColor(this),
+                themeMode = AppPreferences.themeMode(this),
+            ) {
                 val installState by installViewModel.state.collectAsStateWithLifecycle()
                 BackHandler(enabled = installState.busy) {}
                 LaunchedEffect(Unit) {
@@ -181,12 +184,12 @@ private fun InstallScreen(
 
 @Composable
 private fun InstallerStatusCard(installState: InstallUiState) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(
+        colors = CardDefaults.cardColors(
             containerColor = when (installState.phase) {
                 InstallPhase.Failed -> MaterialTheme.colorScheme.errorContainer
                 else -> MaterialTheme.colorScheme.primaryContainer
@@ -194,7 +197,7 @@ private fun InstallerStatusCard(installState: InstallUiState) {
         ),
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Row(
@@ -238,15 +241,15 @@ private fun InstallerStatusCard(installState: InstallUiState) {
 
 @Composable
 private fun InstallerSteps(phase: InstallPhase) {
-    ElevatedCard(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             installerSteps.forEachIndexed { index, step ->
@@ -303,14 +306,14 @@ private fun InstallerLog(
     modifier: Modifier,
     scrollState: androidx.compose.foundation.ScrollState,
 ) {
-    ElevatedCard(
+    Card(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(18.dp),
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.install_live_progress), style = MaterialTheme.typography.titleMedium)

@@ -17,9 +17,21 @@ enum class AccentColor(val storedValue: String) {
     }
 }
 
+enum class AppThemeMode(val storedValue: String) {
+    System("system"),
+    Light("light"),
+    Dark("dark");
+
+    companion object {
+        fun fromStoredValue(value: String?): AppThemeMode =
+            entries.firstOrNull { it.storedValue == value } ?: System
+    }
+}
+
 object AppPreferences {
     private const val PREFERENCES = "appearance"
     private const val ACCENT_COLOR = "accent_color"
+    private const val THEME_MODE = "theme_mode"
 
     fun accentColor(context: Context): AccentColor = AccentColor.fromStoredValue(
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -30,6 +42,18 @@ object AppPreferences {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .putString(ACCENT_COLOR, color.storedValue)
+            .apply()
+    }
+
+    fun themeMode(context: Context): AppThemeMode = AppThemeMode.fromStoredValue(
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getString(THEME_MODE, null),
+    )
+
+    fun setThemeMode(context: Context, themeMode: AppThemeMode) {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(THEME_MODE, themeMode.storedValue)
             .apply()
     }
 

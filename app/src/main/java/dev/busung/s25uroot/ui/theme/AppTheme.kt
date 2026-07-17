@@ -9,6 +9,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -18,6 +19,7 @@ import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
 import dev.busung.s25uroot.AccentColor
+import dev.busung.s25uroot.AppThemeMode
 
 private val AppTypography = Typography(
     displaySmall = TextStyle(fontSize = 38.sp, lineHeight = 44.sp, fontWeight = FontWeight.Light),
@@ -44,16 +46,29 @@ private fun accentSeed(context: Context, accentColor: AccentColor): Color = when
 @Composable
 fun RootMyGalaxyTheme(
     accentColor: AccentColor,
+    themeMode: AppThemeMode,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val darkTheme = isSystemInDarkTheme()
-    val colors = rememberDynamicColorScheme(
+    val systemDarkTheme = isSystemInDarkTheme()
+    val darkTheme = when (themeMode) {
+        AppThemeMode.System -> systemDarkTheme
+        AppThemeMode.Light -> false
+        AppThemeMode.Dark -> true
+    }
+    val generatedColors = rememberDynamicColorScheme(
         seedColor = accentSeed(context, accentColor),
         isDark = darkTheme,
         style = PaletteStyle.TonalSpot,
         specVersion = ColorSpec.SpecVersion.SPEC_2025,
     )
+    val colors = if (darkTheme) {
+        generatedColors
+    } else {
+        generatedColors.copy(
+            onSurfaceVariant = lerp(generatedColors.surface, generatedColors.onSurface, 0.8f),
+        )
+    }
 
     SideEffect {
         val window = (context as Activity).window

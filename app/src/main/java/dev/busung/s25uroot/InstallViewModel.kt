@@ -45,10 +45,14 @@ private data class CommandResult(val code: Int, val output: String)
 class InstallViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val repository = PayloadRepository(application)
+    private val historyStore = InstallHistoryStore(application)
     private val mutableState = MutableStateFlow(InstallUiState())
+    private val mutableHistory = MutableStateFlow(historyStore.closeInterruptedRuns())
     private var discoveryJob: Job? = null
     private var installJob: Job? = null
+    private var activeHistoryEntry: InstallHistoryEntry? = null
     val state: StateFlow<InstallUiState> = mutableState.asStateFlow()
+    val history: StateFlow<List<InstallHistoryEntry>> = mutableHistory.asStateFlow()
 
     init {
         refresh()
@@ -56,6 +60,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     fun refresh() {
         if (installJob?.isActive == true) return
+        mutableHistory.value = historyStore.load()
         discoveryJob?.cancel()
         discoveryJob = viewModelScope.launch(Dispatchers.IO) {
             val probe = NativeProbe.run()
@@ -91,6 +96,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
         discoveryJob?.cancel()
         installJob = viewModelScope.launch(Dispatchers.IO) {
+            mutableState.value = InstallUiState(
+                phase = InstallPhase.Checking,
+                probeOutput = mutableState.value.probeOutput,
+            )
+            startHistory()
             try {
                 setPhase(InstallPhase.Checking, app.getString(R.string.status_checking_github))
                 val profile = repository.resolveTarget(DeviceSnapshot.current())
@@ -108,9 +118,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
                 setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_active))
                 appendLog(app.getString(R.string.log_install_complete))
+                finishHistory(InstallRunResult.Succeeded)
             } catch (error: Throwable) {
                 appendLog("[-] ${error.message ?: error.javaClass.simpleName}")
                 setPhase(InstallPhase.Failed, app.getString(R.string.status_install_failed))
+                finishHistory(InstallRunResult.Failed)
             }
         }
     }
@@ -180,6 +192,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 .filter(String::isNotBlank)
                 .joinToString("\n"),
         )
+        updateHistoryLog()
     }
 
     private fun installKernelSu(payloads: VerifiedPayloads) {
@@ -245,6 +258,38 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         mutableState.value = mutableState.value.copy(
             log = (mutableState.value.log + "\n" + cleanLine).trim(),
         )
+        updateHistoryLog()
+    }
+
+    private fun startHistory() {
+        val entry = historyStore.create()
+        activeHistoryEntry = entry
+        publishHistory(entry)
+    }
+
+    private fun updateHistoryLog() {
+        val entry = activeHistoryEntry ?: return
+        val updated = entry.copy(log = mutableState.value.log)
+        activeHistoryEntry = updated
+        historyStore.save(updated)
+        publishHistory(updated)
+    }
+
+    private fun finishHistory(result: InstallRunResult) {
+        val entry = activeHistoryEntry ?: return
+        val completed = entry.copy(
+            completedAtMillis = System.currentTimeMillis(),
+            result = result,
+            log = mutableState.value.log,
+        )
+        activeHistoryEntry = null
+        historyStore.save(completed)
+        publishHistory(completed)
+    }
+
+    private fun publishHistory(entry: InstallHistoryEntry) {
+        mutableHistory.value = (mutableHistory.value.filterNot { it.id == entry.id } + entry)
+            .sortedByDescending(InstallHistoryEntry::startedAtMillis)
     }
 
     private fun File.readTextIfPresent(): String = if (exists()) readText() else ""

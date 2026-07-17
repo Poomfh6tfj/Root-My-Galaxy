@@ -3,6 +3,7 @@ package dev.busung.s25uroot
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -27,8 +28,10 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,23 +40,33 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.BrightnessAuto
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -62,8 +75,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,38 +91,55 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.busung.s25uroot.ui.theme.RootMyGalaxyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 
 class MainActivity : ComponentActivity() {
     private val installViewModel by viewModels<InstallViewModel>()
     private var resumedOnce = false
     private var accentColor by mutableStateOf(AccentColor.Dynamic)
+    private var themeMode by mutableStateOf(AppThemeMode.System)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         accentColor = AppPreferences.accentColor(this)
+        themeMode = AppPreferences.themeMode(this)
         setContent {
-            RootMyGalaxyTheme(accentColor = accentColor) {
+            RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
                 RootApp(
                     installViewModel = installViewModel,
                     accentColor = accentColor,
+                    themeMode = themeMode,
                     onAccentColorChanged = { color ->
                         AppPreferences.setAccentColor(this, color)
                         accentColor = color
+                    },
+                    onThemeModeChanged = { mode ->
+                        AppPreferences.setThemeMode(this, mode)
+                        themeMode = mode
                     },
                     openInstaller = {
                         startActivity(
@@ -127,6 +160,7 @@ class MainActivity : ComponentActivity() {
 
 private enum class AppPage(@StringRes val label: Int, val icon: ImageVector) {
     Overview(R.string.nav_overview, Icons.Rounded.Home),
+    History(R.string.nav_history, Icons.Rounded.History),
     Settings(R.string.nav_settings, Icons.Rounded.Settings),
 }
 
@@ -144,10 +178,13 @@ private val languageOptions = listOf(
 private fun RootApp(
     installViewModel: InstallViewModel,
     accentColor: AccentColor,
+    themeMode: AppThemeMode,
     onAccentColorChanged: (AccentColor) -> Unit,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
     openInstaller: () -> Unit,
 ) {
     val installState by installViewModel.state.collectAsStateWithLifecycle()
+    val history by installViewModel.history.collectAsStateWithLifecycle()
     var selectedPage by remember { mutableStateOf(AppPage.Overview) }
     var showInstallConfirmation by remember { mutableStateOf(false) }
     val device = remember { DeviceSnapshot.current() }
@@ -156,7 +193,10 @@ private fun RootApp(
         AlertDialog(
             onDismissRequest = { showInstallConfirmation = false },
             icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
-            title = { Text(stringResource(R.string.install_confirm_title)) },
+            title = {
+                DialogDimAmount(0.24f)
+                Text(stringResource(R.string.install_confirm_title))
+            },
             text = { Text(stringResource(R.string.install_confirm_body)) },
             confirmButton = {
                 FilledTonalButton(onClick = {
@@ -176,7 +216,11 @@ private fun RootApp(
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                modifier = Modifier.height(72.dp),
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 0.dp,
+            ) {
                 AppPage.entries.forEach { page ->
                     NavigationBarItem(
                         selected = selectedPage == page,
@@ -187,6 +231,7 @@ private fun RootApp(
                 }
             }
         },
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) { padding ->
         AnimatedContent(targetState = selectedPage, label = "page") { page ->
             when (page) {
@@ -196,14 +241,23 @@ private fun RootApp(
                     installState = installState,
                     onInstall = { showInstallConfirmation = true },
                 )
+                AppPage.History -> HistoryPage(padding, history)
                 AppPage.Settings -> SettingsPage(
                     padding = padding,
                     accentColor = accentColor,
+                    themeMode = themeMode,
                     onAccentColorChanged = onAccentColorChanged,
+                    onThemeModeChanged = onThemeModeChanged,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun DialogDimAmount(amount: Float) {
+    val window = (LocalView.current.parent as DialogWindowProvider).window
+    SideEffect { window.setDimAmount(amount) }
 }
 
 @Composable
@@ -234,21 +288,21 @@ private fun OverviewPage(
 @Composable
 private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
-    ElevatedCard(
+    Card(
         onClick = {
             if (!installState.busy && installState.phase != InstallPhase.Installed) onInstall()
         },
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = expressiveClickableCardShape(interactionSource),
         interactionSource = interactionSource,
-        colors = CardDefaults.elevatedCardColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
         ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 22.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when {
                 installState.busy -> LoadingIndicator(modifier = Modifier.size(44.dp))
@@ -259,7 +313,7 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                     Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(44.dp),
                 )
                 else -> Icon(
-                    Icons.Rounded.Security, contentDescription = null, modifier = Modifier.size(44.dp),
+                    Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(44.dp),
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -278,7 +332,7 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                         else -> stringResource(R.string.install_tap_start)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.86f),
                     maxLines = 1,
                 )
             }
@@ -288,16 +342,16 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
 
 @Composable
 private fun DeviceCard(device: DeviceSnapshot) {
-    ElevatedCard(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
     ) {
         Column(
-            modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             InfoRow(Icons.Rounded.Memory, stringResource(R.string.device), "${device.manufacturer} ${device.model} (${device.device})")
             InfoRow(Icons.Rounded.Code, stringResource(R.string.firmware), device.buildId)
@@ -309,7 +363,7 @@ private fun DeviceCard(device: DeviceSnapshot) {
 
 @Composable
 private fun InfoRow(icon: ImageVector, label: String, value: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(15.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column {
             Text(label, style = MaterialTheme.typography.titleSmall)
@@ -322,21 +376,24 @@ private fun InfoRow(icon: ImageVector, label: String, value: String) {
 private fun GitHubCard() {
     val interactionSource = remember { MutableInteractionSource() }
     val uriHandler = LocalUriHandler.current
-    ElevatedCard(
+    Card(
         onClick = { uriHandler.openUri(ROOT_MY_GALAXY_URL) },
         modifier = Modifier.fillMaxWidth(),
         shape = expressiveClickableCardShape(interactionSource),
         interactionSource = interactionSource,
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
     ) {
         Row(
-            modifier = Modifier.padding(22.dp),
-            horizontalArrangement = Arrangement.spacedBy(15.dp),
+            modifier = Modifier.padding(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Rounded.Code, contentDescription = null)
+            Icon(
+                painter = painterResource(R.drawable.ic_github),
+                contentDescription = null,
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     stringResource(R.string.github_card_title),
@@ -357,10 +414,250 @@ private fun GitHubCard() {
 }
 
 @Composable
+private fun HistoryPage(
+    padding: PaddingValues,
+    history: List<InstallHistoryEntry>,
+) {
+    var selectedHistoryId by remember { mutableStateOf<String?>(null) }
+    val selectedEntry = history.firstOrNull { it.id == selectedHistoryId }
+    BackHandler(enabled = selectedEntry != null) { selectedHistoryId = null }
+
+    AnimatedContent(
+        targetState = selectedEntry,
+        contentKey = { it?.id ?: "history-list" },
+        label = "history-detail",
+    ) { entry ->
+        if (entry == null) {
+            HistoryList(
+                padding = padding,
+                history = history,
+                onEntryClick = { selectedHistoryId = it.id },
+            )
+        } else {
+            HistoryDetail(
+                padding = padding,
+                entry = entry,
+                onBack = { selectedHistoryId = null },
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistoryList(
+    padding: PaddingValues,
+    history: List<InstallHistoryEntry>,
+    onEntryClick: (InstallHistoryEntry) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Text(
+                text = stringResource(R.string.history_title),
+                style = MaterialTheme.typography.headlineLarge,
+                modifier = Modifier.padding(top = 20.dp, bottom = 14.dp),
+            )
+        }
+        if (history.isEmpty()) {
+            item { EmptyHistoryCard() }
+        } else {
+            itemsIndexed(history, key = { _, entry -> entry.id }) { _, entry ->
+                HistoryEntryCard(entry, onClick = { onEntryClick(entry) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyHistoryCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(32.dp))
+            Column {
+                Text(stringResource(R.string.history_empty_title), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.history_empty_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryEntryCard(entry: InstallHistoryEntry, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val containerColor = when (entry.result) {
+        InstallRunResult.Running -> MaterialTheme.colorScheme.tertiaryContainer
+        InstallRunResult.Succeeded -> MaterialTheme.colorScheme.primaryContainer
+        InstallRunResult.Failed -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when (entry.result) {
+        InstallRunResult.Running -> MaterialTheme.colorScheme.onTertiaryContainer
+        InstallRunResult.Succeeded -> MaterialTheme.colorScheme.onPrimaryContainer
+        InstallRunResult.Failed -> MaterialTheme.colorScheme.onErrorContainer
+    }
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = expressiveClickableCardShape(interactionSource),
+        interactionSource = interactionSource,
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            Icon(historyResultIcon(entry.result), contentDescription = null, modifier = Modifier.size(30.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    formatHistoryTime(entry.startedAtMillis),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = contentColor.copy(alpha = 0.78f),
+                )
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun HistoryDetail(
+    padding: PaddingValues,
+    entry: InstallHistoryEntry,
+    onBack: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Row(
+                modifier = Modifier.padding(top = 12.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                }
+                Text(stringResource(R.string.history_detail_title), style = MaterialTheme.typography.headlineLarge)
+            }
+        }
+        item { HistoryResultCard(entry) }
+        item { SectionLabel(stringResource(R.string.history_log)) }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ),
+            ) {
+                Text(
+                    text = entry.log.ifBlank { stringResource(R.string.history_log_empty) },
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryResultCard(entry: InstallHistoryEntry) {
+    val containerColor = when (entry.result) {
+        InstallRunResult.Running -> MaterialTheme.colorScheme.tertiaryContainer
+        InstallRunResult.Succeeded -> MaterialTheme.colorScheme.primaryContainer
+        InstallRunResult.Failed -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when (entry.result) {
+        InstallRunResult.Running -> MaterialTheme.colorScheme.onTertiaryContainer
+        InstallRunResult.Succeeded -> MaterialTheme.colorScheme.onPrimaryContainer
+        InstallRunResult.Failed -> MaterialTheme.colorScheme.onErrorContainer
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = containerColor, contentColor = contentColor),
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(historyResultIcon(entry.result), contentDescription = null, modifier = Modifier.size(38.dp))
+            Column {
+                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleLarge)
+                Text(
+                    stringResource(R.string.history_started, formatHistoryTime(entry.startedAtMillis)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = contentColor.copy(alpha = 0.78f),
+                )
+                entry.completedAtMillis?.let { completedAt ->
+                    Text(
+                        stringResource(R.string.history_completed, formatHistoryTime(completedAt)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor.copy(alpha = 0.78f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun historyResultLabel(result: InstallRunResult): String = stringResource(
+    when (result) {
+        InstallRunResult.Running -> R.string.history_running
+        InstallRunResult.Succeeded -> R.string.history_succeeded
+        InstallRunResult.Failed -> R.string.history_failed
+    },
+)
+
+private fun historyResultIcon(result: InstallRunResult): ImageVector = when (result) {
+    InstallRunResult.Running -> Icons.Rounded.Schedule
+    InstallRunResult.Succeeded -> Icons.Rounded.CheckCircle
+    InstallRunResult.Failed -> Icons.Rounded.Error
+}
+
+@Composable
+private fun formatHistoryTime(timestamp: Long): String {
+    val locale = LocalConfiguration.current.locales[0]
+    return remember(timestamp, locale) {
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM, locale)
+            .format(Date(timestamp))
+    }
+}
+
+@Composable
 private fun SettingsPage(
     padding: PaddingValues,
     accentColor: AccentColor,
+    themeMode: AppThemeMode,
     onAccentColorChanged: (AccentColor) -> Unit,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
 ) {
     val context = LocalContext.current
     var showLanguageDialog by remember { mutableStateOf(false) }
@@ -430,6 +727,9 @@ private fun SettingsPage(
         }
         item { SectionLabel(stringResource(R.string.appearance)) }
         item {
+            ThemeModeSelector(themeMode, onThemeModeChanged)
+        }
+        item {
             SettingsCard(
                 modifier = Modifier.onGloballyPositioned { coordinates ->
                     colorMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
@@ -464,19 +764,19 @@ private fun SettingsCard(
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    ElevatedCard(
+    Card(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = expressiveClickableCardShape(interactionSource),
         interactionSource = interactionSource,
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -495,6 +795,43 @@ private fun SettingsCard(
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
             )
+        }
+    }
+}
+
+@Composable
+private fun ThemeModeSelector(
+    themeMode: AppThemeMode,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
+) {
+    val themeModes = AppThemeMode.entries
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        themeModes.forEachIndexed { index, mode ->
+            ToggleButton(
+                checked = themeMode == mode,
+                onCheckedChange = { onThemeModeChanged(mode) },
+                modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    themeModes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                contentPadding = PaddingValues(horizontal = 10.dp),
+            ) {
+                Icon(
+                    imageVector = when (mode) {
+                        AppThemeMode.System -> Icons.Rounded.BrightnessAuto
+                        AppThemeMode.Light -> Icons.Rounded.LightMode
+                        AppThemeMode.Dark -> Icons.Rounded.DarkMode
+                    },
+                    contentDescription = null,
+                )
+                Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
+                Text(themeModeLabel(mode), maxLines = 1)
+            }
         }
     }
 }
@@ -600,9 +937,9 @@ private fun SideChoiceMenu(
                             onClick = {},
                         ),
                     shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    tonalElevation = 8.dp,
-                    shadowElevation = 10.dp,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
                 ) {
                     LazyColumn(
                         contentPadding = PaddingValues(8.dp),
@@ -679,4 +1016,11 @@ private fun accentLabel(color: AccentColor): String = when (color) {
     AccentColor.Violet -> stringResource(R.string.color_violet)
     AccentColor.Green -> stringResource(R.string.color_green)
     AccentColor.Orange -> stringResource(R.string.color_orange)
+}
+
+@Composable
+private fun themeModeLabel(themeMode: AppThemeMode): String = when (themeMode) {
+    AppThemeMode.System -> stringResource(R.string.theme_system)
+    AppThemeMode.Light -> stringResource(R.string.theme_light)
+    AppThemeMode.Dark -> stringResource(R.string.theme_dark)
 }
