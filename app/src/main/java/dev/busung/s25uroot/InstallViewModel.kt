@@ -2,6 +2,7 @@ package dev.busung.s25uroot
 
 import android.app.Application
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -133,7 +134,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         val helper = helperFile()
         require(helper.canExecute()) { app.getString(R.string.error_helper_unavailable) }
         val logPrefix = mutableState.value.log
-        val bootId = currentBootId()
+        val bootToken = currentBootToken()
         val processBuilder = ProcessBuilder(
             helper.absolutePath,
             "--run-payload",
@@ -141,7 +142,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             helper.absolutePath,
             logFile.absolutePath,
         ).redirectErrorStream(true)
-        cachedP0Offset(bootId)?.let { processBuilder.environment()[P0_OFFSET_ENV] = it }
+        cachedP0Offset(bootToken)?.let { processBuilder.environment()[P0_OFFSET_ENV] = it }
         val process = processBuilder.start()
 
         try {
@@ -151,7 +152,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             while (process.isAlive) {
                 val rawLog = logFile.readTextIfPresent()
                 if (rawLog != lastRawLog) {
-                    cacheP0Offset(bootId, rawLog)
+                    cacheP0Offset(bootToken, rawLog)
                     publishExploitLog(logPrefix, rawLog)
                     lastRawLog = rawLog
                     lastProgressAt = SystemClock.elapsedRealtime()
@@ -168,7 +169,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
             val exitCode = process.waitFor()
             val rawLog = logFile.readTextIfPresent()
-            cacheP0Offset(bootId, rawLog)
+            cacheP0Offset(bootToken, rawLog)
             publishExploitLog(logPrefix, rawLog)
             val earlyOutput = process.inputStream.bufferedReader().use { it.readText() }.trim()
             require(exitCode == 0) {
@@ -220,45 +221,47 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun detectInstalled(): Boolean {
-        val bootId = currentBootId() ?: return false
+        val bootToken = currentBootToken() ?: return false
         val receipt = app.getSharedPreferences(INSTALL_RECEIPT, Application.MODE_PRIVATE)
-        return receipt.getString(RECEIPT_BOOT_ID, null) == bootId &&
+        return receipt.getString(RECEIPT_BOOT_TOKEN, null) == bootToken &&
             receipt.getBoolean(RECEIPT_VERIFIED, false)
     }
 
     private fun storeInstallReceipt() {
-        val bootId = currentBootId() ?: error(app.getString(R.string.error_boot_id))
+        val bootToken = currentBootToken() ?: error(app.getString(R.string.error_boot_id))
         val stored = app.getSharedPreferences(INSTALL_RECEIPT, Application.MODE_PRIVATE)
             .edit()
-            .putString(RECEIPT_BOOT_ID, bootId)
+            .putString(RECEIPT_BOOT_TOKEN, bootToken)
             .putBoolean(RECEIPT_VERIFIED, true)
             .commit()
         require(stored) { app.getString(R.string.error_receipt) }
     }
 
-    private fun currentBootId(): String? = runCatching {
-        File("/proc/sys/kernel/random/boot_id").readText().trim()
-    }.getOrNull()?.takeIf(String::isNotBlank)
+    private fun currentBootToken(): String? = Settings.Global.getInt(
+        app.contentResolver,
+        Settings.Global.BOOT_COUNT,
+        -1,
+    ).takeIf { it >= 0 }?.toString()
 
-    private fun cachedP0Offset(bootId: String?): String? {
-        if (bootId == null) return null
+    private fun cachedP0Offset(bootToken: String?): String? {
+        if (bootToken == null) return null
         val stored = app.getSharedPreferences(P0_CACHE, Application.MODE_PRIVATE)
-        if (stored.getString(P0_CACHE_BOOT_ID, null) != bootId) return null
+        if (stored.getString(P0_CACHE_BOOT_TOKEN, null) != bootToken) return null
         return stored.getString(P0_CACHE_OFFSET, null)
     }
 
-    private fun cacheP0Offset(bootId: String?, log: String) {
-        if (bootId == null) return
+    private fun cacheP0Offset(bootToken: String?, log: String) {
+        if (bootToken == null) return
         val match = P0_OFFSET_PATTERN.findAll(log).lastOrNull() ?: return
         val offset = match.groupValues[1].toLongOrNull(16) ?: return
         if (offset !in 0..P0_OFFSET_MAX || offset and P0_OFFSET_MASK != 0L) return
         val value = "0x${offset.toString(16)}"
         val stored = app.getSharedPreferences(P0_CACHE, Application.MODE_PRIVATE)
-        if (stored.getString(P0_CACHE_BOOT_ID, null) == bootId &&
+        if (stored.getString(P0_CACHE_BOOT_TOKEN, null) == bootToken &&
             stored.getString(P0_CACHE_OFFSET, null) == value
         ) return
         stored.edit()
-            .putString(P0_CACHE_BOOT_ID, bootId)
+            .putString(P0_CACHE_BOOT_TOKEN, bootToken)
             .putString(P0_CACHE_OFFSET, value)
             .apply()
     }
@@ -326,10 +329,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val EXPLOIT_STALL_MILLIS = 90_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
         private const val INSTALL_RECEIPT = "install_receipt"
-        private const val RECEIPT_BOOT_ID = "boot_id"
+        private const val RECEIPT_BOOT_TOKEN = "boot_count"
         private const val RECEIPT_VERIFIED = "verified"
         private const val P0_CACHE = "p0_cache"
-        private const val P0_CACHE_BOOT_ID = "boot_id"
+        private const val P0_CACHE_BOOT_TOKEN = "boot_count"
         private const val P0_CACHE_OFFSET = "offset"
         private const val P0_OFFSET_ENV = "SLIDE_P0_OFFSET"
         private const val P0_OFFSET_MAX = 0x1f0000L
